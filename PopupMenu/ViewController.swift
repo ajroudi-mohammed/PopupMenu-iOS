@@ -7,6 +7,7 @@
 //
 
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 private enum State {
     case closed
@@ -29,12 +30,18 @@ class ViewController: UIViewController {
         view.backgroundColor = .gray
         return view
     }()
+    
+    private lazy var panRecognizer: InstantPanGestureRecognizer = {
+        let recognizer = InstantPanGestureRecognizer()
+        recognizer.addTarget(self, action: #selector(popupViewPanned(recognizer:)))
+        return recognizer
+    }()
 
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view.
         layout();
-        popupView.addGestureRecognizer(tapRecognizer)
+        
         popupView.addGestureRecognizer(panRecognizer)
     }
     
@@ -45,56 +52,15 @@ class ViewController: UIViewController {
         view.addSubview(popupView)
         popupView.leadingAnchor.constraint(equalTo: view.leadingAnchor).isActive = true
         popupView.trailingAnchor.constraint(equalTo: view.trailingAnchor).isActive = true
-        bottomConstraint = popupView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: 440)
+        bottomConstraint = popupView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: 400)
         bottomConstraint.isActive = true
         popupView.heightAnchor.constraint(equalToConstant: 500).isActive = true
     }
     
-    private lazy var tapRecognizer : UITapGestureRecognizer = {
-        let recognizer = UITapGestureRecognizer()
-        recognizer.addTarget(self, action: #selector(popupViewTapped(recognizer:)))
-        return recognizer
-    }()
-    
-    private lazy var panRecognizer : UIPanGestureRecognizer = {
-        let recognizer = UIPanGestureRecognizer()
-        recognizer.addTarget(self, action: #selector(popupViewPanned(recognizer:)))
-        return recognizer
-    }()
 
     private var currentState: State = .closed
     
     private var transitionAnimator : UIViewPropertyAnimator! = nil
-    
-    @objc private func popupViewTapped(recognizer: UITapGestureRecognizer){
-        let state = currentState.opposite
-        transitionAnimator = UIViewPropertyAnimator(duration: 3, dampingRatio: 1, animations: {
-            switch state {
-            case .open:
-                self.bottomConstraint.constant = 0
-            case .closed:
-                self.bottomConstraint.constant = 440
-            }
-            self.view.layoutIfNeeded()
-        })
-        transitionAnimator.addCompletion { position in
-            switch position {
-            case .start:
-                self.currentState = state.opposite
-            case .end:
-                self.currentState = state
-            case .current:
-                ()
-            }
-            switch self.currentState {
-            case .open:
-                self.bottomConstraint.constant = 0
-            case .closed:
-                self.bottomConstraint.constant = 440
-            }
-        }
-        transitionAnimator.startAnimation()
-    }
     
     private var animationProgress: CGFloat = 0
     
@@ -102,42 +68,85 @@ class ViewController: UIViewController {
         switch recognizer.state {
             case .began:
                 
-                let state = currentState.opposite
-                transitionAnimator = UIViewPropertyAnimator(duration: 3, dampingRatio: 1, animations: {
-                    switch state {
-                        case .open:
-                            self.bottomConstraint.constant = 0
-                        case .closed:
-                            self.bottomConstraint.constant = 440
+                if transitionAnimator == nil {
+                    let state = currentState.opposite
+                    transitionAnimator = UIViewPropertyAnimator(duration: 3, dampingRatio: 1, animations: {
+                        switch state {
+                            case .open:
+                                self.bottomConstraint.constant = 0
+                            case .closed:
+                                self.bottomConstraint.constant = 400
+                        }
+                        self.view.layoutIfNeeded()
+                    })
+                    transitionAnimator.addCompletion { position in
+                        
+                        switch position {
+                            case .start:
+                                self.currentState = state.opposite
+                            case .end:
+                                self.currentState = state
+                            case .current:
+                                ()
+                        }
+                        
+                        switch self.currentState {
+                            case .open:
+                                self.bottomConstraint.constant = 0
+                            case .closed:
+                                self.bottomConstraint.constant = 400
+                        }
+                        
+                        self.transitionAnimator = nil
+                        
                     }
-                    self.view.layoutIfNeeded()
-                })
-                transitionAnimator.addCompletion { position in
-                    switch position {
-                        case .start:
-                            self.currentState = state.opposite
-                        case .end:
-                            self.currentState = state
-                        case .current:
-                            ()
-                    }
-                    switch self.currentState {
-                        case .open:
-                            self.bottomConstraint.constant = 0
-                        case .closed:
-                            self.bottomConstraint.constant = 440
-                    }
+                    transitionAnimator.startAnimation()
                 }
-                transitionAnimator.startAnimation()
                 transitionAnimator.pauseAnimation()
                 animationProgress = transitionAnimator.fractionComplete
             
             case .changed:
+                 
                 let translation = recognizer.translation(in: popupView)
-                var fraction = -translation.y / 440
+                var fraction = -translation.y / 400
+                
                 if currentState == .open { fraction *= -1 }
+                if transitionAnimator.isReversed { fraction *= -1 }
+                
                 transitionAnimator.fractionComplete = fraction + animationProgress
+            
+            
             case .ended:
+                
+                let yVelocity = recognizer.velocity(in: popupView).y
+                let shouldClose = yVelocity > 0
+                
+                if yVelocity == 0 {
+                    transitionAnimator.continueAnimation(withTimingParameters: nil, durationFactor: 0)
+                    break
+                }
+                
+                switch currentState {
+                    
+                    case .open:
+                        
+                        if !shouldClose && !transitionAnimator.isReversed {
+                            transitionAnimator.isReversed = !transitionAnimator.isReversed
+                        }
+                        if shouldClose && transitionAnimator.isReversed {
+                            transitionAnimator.isReversed = !transitionAnimator.isReversed
+                        }
+                    
+                    case .closed:
+                        
+                        if shouldClose && !transitionAnimator.isReversed {
+                            transitionAnimator.isReversed = !transitionAnimator.isReversed
+                        }
+                        if !shouldClose && transitionAnimator.isReversed {
+                            transitionAnimator.isReversed = !transitionAnimator.isReversed
+                        }
+                }
+                
                 transitionAnimator.continueAnimation(withTimingParameters: nil, durationFactor: 0)
             default:
                 ()
@@ -145,5 +154,15 @@ class ViewController: UIViewController {
     }
     
 
+}
+
+class InstantPanGestureRecognizer: UIPanGestureRecognizer {
+    
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        if (self.state == UIGestureRecognizerState.began) { return }
+        super.touchesBegan(touches, with: event)
+        self.state = UIGestureRecognizerState.began
+    }
+    
 }
 
